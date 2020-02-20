@@ -1,0 +1,14 @@
+./cuboids
+./__pycache__
+./*/*.png
+./*/*.mp4
+./*/*.svg
+./*/*.pyc
+./*/ifes_samples
+./*/RTGR
+./*/charts
+./*/*.pkl
+./*/*.npy
+./*/*.npy
+
+
