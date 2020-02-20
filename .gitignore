@@ -1,12 +1,12 @@
 ./cuboids/
-./__pycache__
+./__pycache__/
 ./*/*.png
 ./*/*.mp4
 ./*/*.svg
 ./*/*.pyc
-./*/ifes_samples/
-./*/RTGR/*
-./*/charts/*
+./RTgesture/ifes_samples/
+./RTgesture/RTGR/*
+./RTgesture/charts/*
 ./*/*.pkl
 ./*/*.npy
 ./*/*.npy
