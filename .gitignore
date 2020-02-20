@@ -1,15 +1,15 @@
-./cuboids/
-./__pycache__/
-./*/*.png
-./*/*.mp4
-./*/*.svg
-./*/*.pyc
-./RTgesture/ifes_samples/
-./RTgesture/RTGR/*
-./RTgesture/charts/*
-./*/*.pkl
-./*/*.npy
-./*/*.npy
-./*/*.json
+**/cuboids/
+**/__pycache__/
+**/**/*.png
+**/**/*.mp4
+**/**/*.svg
+**/**/*.pyc
+**/RTgesture/ifes_samples/
+**/RTgesture/RTGR/
+**/RTgesture/charts/
+**/**/**/*.pkl
+**/**/**/*.npy
+**/**/**/*.npy
+**/**/**/*.json
 
 
