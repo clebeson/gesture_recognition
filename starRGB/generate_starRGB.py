@@ -17,11 +17,11 @@ imageio.plugins.ffmpeg.download()
 
 
 def normalize(image):
-    """Normalizes image between 0 and 1"""
+    """Normalizes image between 0 and 255"""
     max = np.max(image[:])
     min = np.min(image[:])
     image = (image-min) / (max-min+1.0) 
-    return image
+    return np.uint8(image*255)
 
 
 
@@ -155,18 +155,12 @@ def get_label(name):
 
 
 if __name__ == "__main__":
-
-    frames= get_frames("Sample0437-530-559-video_13.mp4", (240,320))
+    frames= get_frames("samples/Sample0437-530-559-video_13.mp4", (240,320))
     frames = np.array(frames)
-    star = normalize(get_starRGB(frames))
-    plt.imshow(star)
+    starRGB = normalize(get_starRGB(frames))
+    plt.imshow(starRGB)
     plt.show()
-    print(frames.shape)
-    frames = np.transpose(frames,(1,2,0,3))
-    print(frames.shape)
-    star = np.uint8(255*normalize(get_starRGB(frames)))
-    plt.imshow(star)
-    plt.show()
+   
 
 
 
