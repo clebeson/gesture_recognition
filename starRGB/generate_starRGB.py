@@ -65,6 +65,7 @@ def get_star(frames, func = "cos", weighted = False ):
     t = len(frames)
     
     w = [float(i)/t if weighted else 1.0 for i in range(1,t) ]
+    w = w[::-1]
     #Star representation by cosine distance
     if func == "cos":
         return (reduce(add, map(cosine_distance, frames[:-1],frames[1:],w) ))
@@ -72,20 +73,20 @@ def get_star(frames, func = "cos", weighted = False ):
     if func == "euclidian":
         return (reduce(add, map(euclidian_distance, frames[:-1],frames[1:],w) ))
     
-    #Star representation by cosine distance
+    #Star representation using only absolute difference
     return (reduce(add, map(diff, frames[:-1],frames[1:],w)) )
 
     
-def get_starRGB(frames, type = "cos"):
+def get_starRGB(frames, type = "cos",weighted = False):
     """Return an RGB image with the result of the star applied over all frames
     :param frames: frames to claculate the star RGB representation
     :param type: the distancev to be used by star RGB function. Could be the default `cos' (cosince), `euclidian` and `None` for absolute difference.
     """
     total = len(frames) 
     step = total // 3
-    r = np.expand_dims(get_star(frames[:step],type), 2)
-    g = np.expand_dims(get_star(frames[step:step + (total - step*2)],type), 2)
-    b = np.expand_dims(get_star(frames[step + (total - step*2):],type), 2)
+    r = np.expand_dims(get_star(frames[:step],type, weighted), 2)
+    g = np.expand_dims(get_star(frames[step:step + (total - step*2)],type, weighted), 2)
+    b = np.expand_dims(get_star(frames[step + (total - step*2):],type, weighted), 2)
     
     return (np.concatenate([r,g,b], axis = 2))
 
@@ -160,6 +161,14 @@ if __name__ == "__main__":
     starRGB = normalize(get_starRGB(frames))
     plt.imshow(starRGB)
     plt.show()
+   
+
+
+
+            
+
+
+           
    
 
 
