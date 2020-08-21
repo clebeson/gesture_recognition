@@ -7,6 +7,7 @@ import pims
 from functools import reduce
 from moviepy.editor import *
 import scipy.misc as m
+from scipy import ndimage
 import glob
 from scipy.stats import norm
 import matplotlib.pyplot as plt
@@ -62,10 +63,9 @@ def euclidian_distance(img1,img2,w=1.0):
 
 def get_star(frames, func = "cos", weighted = False ):
     """Return a gray scale image with the result of the star applied over all frames"""
-    t = len(frames)
+    n = len(frames)
     
-    w = [float(i)/t if weighted else 1.0 for i in range(1,t) ]
-    w = w[::-1]
+    w = [float(i)/n if weighted else 1.0 for i in range(1,n) ]
     #Star representation by cosine distance
     if func == "cos":
         return (reduce(add, map(cosine_distance, frames[:-1],frames[1:],w) ))
@@ -156,13 +156,69 @@ def get_label(name):
 
 
 if __name__ == "__main__":
-    frames= get_frames("samples/Sample0437-530-559-video_13.mp4", (240,320))
-    frames = np.array(frames)
-    starRGB = normalize(get_starRGB(frames))
-    plt.imshow(starRGB)
-    plt.show()
+    # frames= np.array(get_frames("samples/Sample0437-530-559-video_13.mp4", (240,320)))
+    # star = (get_star(frames,func="diff", weighted=False))
+    # x = normalize(ndimage.sobel(star,0))
+    # y = normalize(ndimage.sobel(star,1))
+    # start = normalize(star)
+    # m.imsave("dx.png",x)
+    # m.imsave("dy.png",y)
+    # m.imsave("star_diff.png",star)
    
 
+    # star = np.concatenate([star,x,y],1)
+    # plt.imshow(star, cmap='gray')
+    # plt.show()
+
+
+ 
+    for dataset in ["train","test", "validation"]:
+        files = glob.glob("/home/clebeson/experiments/datasets/Montalbano/{}/videos/*.mp4".format(dataset))
+        print(len(files))
+        for video in files:
+            print(video)
+            frames= np.array(get_frames(video, (240,320)))
+            # starRGB = normalize(get_starRGB(frames,type="cos", weighted=False))
+            # starRGB_w = normalize(get_starRGB(frames,type="cos", weighted=True))
+
+            # starRGBdiff = normalize(get_starRGB(frames,type="diff", weighted=False))
+            # starRGBdiff_w = normalize(get_starRGB(frames,type="diff", weighted=True))
+
+            # star = normalize(get_star(frames,func="diff", weighted=False))
+            star = (get_star(frames,func="diff", weighted=False))
+            x = normalize(ndimage.sobel(star,0))
+            y = normalize(ndimage.sobel(star,1))
+            start = normalize(star)
+            star = np.stack([star,x,y],2)
+
+
+            star_w = (get_star(frames,func="diff", weighted=True))
+            # star_w = np.stack([star_w,star_w,star_w],2)
+            x = normalize(ndimage.sobel(star_w,0))
+            y = normalize(ndimage.sobel(star_w,1))
+            star_w = normalize(star_w)
+            star_w = np.stack([star_w,x,y],2)
+
+            m.imsave(video.replace("videos","images").replace(".mp4",".png").replace("Sample","starsobel_Sample"),star)
+            m.imsave(video.replace("videos","images").replace(".mp4",".png").replace("Sample","starsobelW_Sample"),star_w)
+            # m.imsave(video.replace("videos","images").replace(".mp4",".png").replace("Sample","starRGBdiff_Sample"),starRGBdiff)
+            # m.imsave(video.replace("videos","images").replace(".mp4",".png").replace("Sample","starRGBdiffW_Sample"),starRGBdiff_w)
+            # m.imsave(video.replace("videos","images").replace(".mp4",".png").replace("Sample","star_Sample"),star)
+            # m.imsave(video.replace("videos","images").replace(".mp4",".png").replace("Sample","starW_Sample"),star_w)
+
+            # imgR = normalize(get_starRGB(frames[:,:,:,0],type="diff", weighted=False))
+            # imgG = normalize(get_starRGB(frames[:,:,:,1],type="diff", weighted=False))
+            # imgB = normalize(get_starRGB(frames[:,:,:,2],type="diff", weighted=False))
+            # img = np.array([imgR,imgG, imgB])
+
+            # imgRW = normalize(get_starRGB(frames[:,:,:,0],type="diff", weighted=True))
+            # imgGW = normalize(get_starRGB(frames[:,:,:,1],type="diff", weighted=True))
+            # imgBW = normalize(get_starRGB(frames[:,:,:,2],type="diff", weighted=True))
+            # imgW = np.array([imgRW,imgGW, imgBW])
+
+
+            # np.save(video.replace("videos","images").replace(".mp4",".npy").replace("Sample","starRGB3_Sample"), img)
+            # np.save(video.replace("videos","images").replace(".mp4",".npy").replace("Sample","starRGB3W_Sample"), imgW)
 
 
             
