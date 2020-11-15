@@ -44,45 +44,25 @@ def generate_video():
     out = cv2.VideoWriter('selected.avi',fourcc, 15.0, (1280,480))
     chosen = [2988, 6155,1476, 2096, 6394, 30,74, 6210, 1562, 2178, 1108,6442, 6499,8686,9152, 13919, 10228]
 
+    
+
     actions = {
-            1: "Pedido de ajuda",
-            2: "Venha aqui",
-            3: "Pode sair",
-            4: "Siga-me",
-            5: "Pare",
-            6: "Abortar missão",
-            7: "Bom",
-            8: "Não",
-            9: "Ruim",
-            10:"Dar passagem",
-            11:"Apontar",
-            12:"Dúvida",
-            13:"Mais alto",
-            14:"Mais baixo",
-            15:"Silêncio",
-        } 
-
-    # actions = {
-    #             1:"Ask",
-    #             2:"Come_Here",
-    #             3:"Leave",
-    #             4:"Follow",
-    #             5:"Stop",
-    #             6:"Abort",
-    #             7:"Good",
-    #             8:"No",
-    #             9:"Bad",
-    #             10:"Give_way",
-    #             11:"Pointing",
-    #             12:"Doubt",
-    #             13:"Louder",
-    #             14:"Quieter",
-    #             15:"Be_quiet"
-    #     }
-
-
-
-
+                1:"Ask",
+                2:"Come_Here",
+                3:"Leave",
+                4:"Follow",
+                5:"Stop",
+                6:"Abort",
+                7:"Good",
+                8:"No",
+                9:"Bad",
+                10:"Give_way",
+                11:"Pointing",
+                12:"Doubt",
+                13:"Louder",
+                14:"Quieter",
+                15:"Be_quiet"
+        }
     colors = ["green", "black", "red", "blue", "brown", "indigo","coral","lime","orangered","yellow", "navy","salmon","gray","darkorange","deepskyblue"]
     font = font_manager.FontProperties(weight='normal',
                                    style='normal', size=10)
@@ -108,8 +88,6 @@ def generate_video():
         act_s = -1
         act_s = -1
         frame_count = begin-1
-        
-
         for i in range(len(mean)):
             frame_count += 1
             fig, axis = plt.subplots(2,1,facecolor=(0.8, 0.8, 0.8))
@@ -290,22 +268,22 @@ def plot_all_charts():
     #colors = ["green", "black", "blue", "red","brown", "indigo"]
 
     actions = {
-            1: "Pedido de ajuda",
-            2: "Venha aqui",
-            3: "Pode sair",
-            4: "Siga-me",
-            5: "Pare",
-            6: "Abortar missão",
-            7: "Bom",
-            8: "Não",
-            9: "Ruim",
-            10:"Dar passagem",
-            11:"Apontar",
-            12:"Dúvida",
-            13:"Mais alto",
-            14:"Mais baixo",
-            15:"Silêncio",
-        } 
+                1:"Ask",
+                2:"Come_Here",
+                3:"Leave",
+                4:"Follow",
+                5:"Stop",
+                6:"Abort",
+                7:"Good",
+                8:"No",
+                9:"Bad",
+                10:"Give_way",
+                11:"Pointing",
+                12:"Doubt",
+                13:"Louder",
+                14:"Quieter",
+                15:"Be_quiet"
+        }
     
 
     videos= pickle.load(open("prediction_gesture3_0_91.16.pkl", 'rb'), encoding="bytes")
@@ -414,7 +392,7 @@ def plot_uncertainty_threshold():
         
        
         
-    values_u = pickle.load(open("prediction_gesture_rt_8040.00.pkl", 'rb'), encoding="bytes")
+    values_u = pickle.load(open("results/results_dynamic_star_rgb_hand_MCLSTM_9745.pkl", 'rb'), encoding="bytes")
     #interval = []
     #pred = []
     #probs = []
@@ -427,7 +405,7 @@ def plot_uncertainty_threshold():
     #values_u = { 'interval':np.array(interval),'pred':np.array(pred),'probs':np.array(probs),'label':np.array(label)}
     # values_u.sort(key = lambda d:d['interval'][0])
     results = []
-    for t in range(50):
+    for t in range(61):
         predictions = {"classes":[], "labels":[]}   
         t /= 10.0
         corrects = []
@@ -435,35 +413,40 @@ def plot_uncertainty_threshold():
         corrects_ant = 0
         anticipate = []
         for i,value in enumerate(values_u):
-            label = value['label']
-            pred = value['pred']
+            label = value['label'][0]
+            pred = value['pred'][0]
             # begin,end = value['interval']
             probs = value['probs']
+            probs = np.transpose(value['probs'], (1,0,2))
 
             vr,h,mi = calc_uncertainties(probs)
+            
             meanst = probs.mean(1)
+            # print(probs.shape)
+            # print(meanst.shape)
             std = probs.std(1)
             c = np.argmax(meanst, axis= 1)
 
-            x = np.argmax(mi<t)
+            x = np.argmax(mi<=0.2)
             a = c[x]
-            if x >0 and a == label:
+            if a == label:
                 corrects_ant += 1.0
-            # else: 
-            #     # print("x {}, begin {}, pred {}, label {}".format(x,begin,a,label))
-            #     print(begin)
-            # if x == 0:a = 0
+            if x == 0: 
+                # label = 20
+                a = 20 #not anticipated
+            
+        
 
-            # predictions["labels"].append(label)
-            # predictions["classes"].append(a)
+            predictions["labels"].append(label)
+            predictions["classes"].append(a)
 
-            ant = float(x)/len(probs) if  x > 0 else 1.0 #len(probs)
+            ant = float(x)/len(probs) if  x > 0 else 0 #len(probs)
             anticipate.append(ant)
             total_frames.append(len(probs))
 
             corrects.append(pred==label)
-        # plot_conf_matrix(predictions)
-        # return
+        plot_conf_matrix(predictions)
+        return
         acc = corrects_ant/len(corrects)
         m = sum(total_frames)/len(total_frames)
         ant = (sum(anticipate)/len(anticipate))
@@ -499,19 +482,54 @@ def plot_uncertainty_threshold():
     axis.plot([0,u_frame],[frame_acc,frame_acc],linestyle='-.',color="b", linewidth=1)
     axis.plot([u_frame, u_frame],[frame_acc,frame],linestyle='-.',color="b", linewidth=1)
     
-    axis.text(u_acc+0.01, acc_frame+0.01,"{}% of Frames".format(int(acc_frame*100)))
-    axis.text(u_frame+0.01,frame-0.04,"{}% of Frames".format(int(frame*100)))
+    axis.text(u_acc+0.01, acc_frame+0.01,"{}% de Frames".format(int(acc_frame*100)))
+    axis.text(u_frame+0.01,frame-0.04,"{}% de Frames".format(int(frame*100)))
 
 
-    axis.set_xlabel("Uncertainty (Mutual Information)")
-    axis.set_ylabel("Anticipation Accuracy / Observation Ratio(OR)")
-    axis.legend([g,o,k,b],["Anticipation Accuracy", "Average OR Anticipation","Maximum Anticipation Accuracy","Minimum Average OR Anticipation"],loc="center right",framealpha=1, frameon=True, fancybox=True)
-    axis.set_title("Anticipation vs Uncertainty ($BLSTM_{MC}$)", weight="bold")
+    # axis.set_xlabel("Uncertainty (Mutual Information)")
+    # axis.set_ylabel("Anticipation Accuracy / Observation Ratio(OR)")
+    # axis.legend([g,o,k,b],["Anticipation Accuracy", "Average OR Anticipation","Maximum Anticipation Accuracy","Minimum Average OR Anticipation"],loc="Upper right",framealpha=1, frameon=True, fancybox=True)
+    # axis.set_title("Anticipation vs Uncertainty ($BLSTM_{MC}$)", weight="bold")
+
+    axis.set_xlabel("Incerteza (Informação Mútua)")
+    axis.set_ylabel("Acurácia de Antecipação / Taxa Média de Observação (TMO)")
+    axis.legend([g,o,k,b],["Acurácia de antecipação", "TMO da antecipação","Acurácia máxima de antecipação","Mínimo TMO de antecipação"],loc="upper right", framealpha=1, frameon=True)
+    axis.set_title("Antecipação vs Incerteza (BStar iRGB$_{hand}$)", weight="bold")
     plt.show()
 
+def get_metrics(cnf_matrix):
+    cnf_matrix = cnf_matrix[:-1,:-1]
+    cnf_matrix = 100 * cnf_matrix.astype('float') / cnf_matrix.sum(axis=1)[:, np.newaxis]
+    FP = cnf_matrix.sum(axis=0) - np.diag(cnf_matrix)  
+    FN = cnf_matrix.sum(axis=1) - np.diag(cnf_matrix)
+    TP = np.diag(cnf_matrix)
+    TN = cnf_matrix.sum() - (FP + FN + TP)
+
+    FP = FP.astype(float)
+    FN = FN.astype(float)
+    TP = TP.astype(float)
+    TN = TN.astype(float)
+
+    # Sensitivity, hit rate, recall, or true positive rate
+    TPR = TP/(TP+FN)
+    # Specificity or true negative rate
+    TNR = TN/(TN+FP) 
+    # Precision or positive predictive value
+    PPV = TP/(TP+FP)
+    # Negative predictive value
+    NPV = TN/(TN+FN)
+    # Fall out or false positive rate
+    FPR = FP/(FP+TN)
+    # False negative rate
+    FNR = FN/(TP+FN)
+    # False discovery rate
+    FDR = FP/(TP+FP)
+    # Overall accuracy
+    ACC = (TP+TN)/(TP+FP+FN+TN)
+    print("Metrics: {}    {}  {} ".format(np.diag(cnf_matrix).mean(),TPR.mean(), FPR.mean()))
 
 
-def generate_confusion_matrix( predictions, class_names):
+def generate_confusion_matrix( label,pred, class_names):
         
         def plot_confusion_matrix(cm, classes,
                                     normalize=True,
@@ -523,56 +541,62 @@ def generate_confusion_matrix( predictions, class_names):
                 """
                 if normalize:
                     cm = 100 * cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+                    cm[-1,:] = 0
+                    
                     print("Normalized confusion matrix")
                 else:
                     print('Confusion matrix, without normalization')
-                print(cm)
-                print(accuracy_score(predictions["labels"], predictions["classes"]))
-                
+
+                print(np.diag(cm))
 
                 plt.imshow(cm, interpolation='nearest', cmap=cmap)
-                # plt.title(title)
+                plt.title(title)
                 plt.colorbar()
-                for acc, c in zip(np.diag(cm),class_names):
-                    print(" & {:.2f}\\% &  ".format(acc))
-        
-                plt.xticks(list(range(len(class_names))), classes, rotation=90)
-                plt.yticks(list(range(len(class_names))), classes)
+                plt.grid(False)
+                
+                tick_marks = np.arange(len(classes))
+               
+          
+                plt.xticks(tick_marks, classes, rotation=90)
+                plt.yticks(tick_marks, classes)
 
-                fmt = '.1f' if normalize else 'd'
+                # fmt = '.1f' if normalize else 'd'
+                
                 thresh = cm.max() / 2.
                 symbol = "%" if normalize else ""
                 for i, j in product(range(cm.shape[0]), range(cm.shape[1])):
                     
                     if cm[i, j] > 0:
+                        # print(i,j)
                         #if i == j:
-                            plt.text(j, i, format(cm[i, j], fmt),
-                                    fontsize=12, ha="center", va="center",
+                        plt.text(j, i, format(cm[i, j], ".1f" if cm[i, j] > int(cm[i, j]) else ".0f"),
+                                    horizontalalignment="center", verticalalignment="center", fontsize=11,
                                     color="white" if cm[i, j] > thresh else "black")
 
-                plt.tight_layout()
+                # plt.tight_layout()
                 # plt.ylabel('Real')
                 # plt.xlabel('Predicted')
         # Compute confusion matrix
-        cnf_matrix = confusion_matrix(predictions["labels"],predictions["classes"])
+        cnf_matrix = confusion_matrix(label,pred)
         np.set_printoptions(precision=2)
-        
-
+        cnf_matrix[-1,:] = 0.00
+        print(cnf_matrix.shape)
+        get_metrics(cnf_matrix)
         # # Plot normalized confusion matrix
-        plt.figure(figsize=(8,8))
+       
+        # plt.figure(figsize=(20,10))
         plot_confusion_matrix(cnf_matrix, classes=class_names, normalize=True,
                             # title='Normalized confusion matrix'
                             )
-        plt.grid(None)
+    
+        # plt.savefig("test.svg", format="svg")
+        #plt.savefig("./confusion_matrix.png") #Save the confision matrix as a .png figure.
         plt.show()
-        # plt.savefig("conf_DLSTM_complete.svg", format="svg")
         
 
 def plot_conf_matrix(predictions = None):
     if predictions is None:
-        values= pickle.load(open("./RTGR/prediction_gesture1_72.00.pkl", 'rb'), encoding="bytes")
-        # values= pickle.load(open("prediction_gesture_rt_8040.00.pkl", 'rb'), encoding="bytes")
-        
+        values= pickle.load(open("prediction_gesture1_55.22.pkl", 'rb'), encoding="bytes")
         
         predictions = {"classes":[], "labels":[]}
     
@@ -580,16 +604,16 @@ def plot_conf_matrix(predictions = None):
             predictions["labels"].append(value['label'])
             predictions["classes"].append(value['pred'])
     
-    # names = ["Ask","Come_Here","Leave","Follow","Stop","Abort","Good","No","Bad","Give_way","Pointing","Doubt","Louder","Quieter","Be_quiet"]
-    names = ["Pedido de ajuda","Venha aqui","Pode sair","Siga-me","Pare","Abortar missão","Bom","Não","Ruim","Dar passagem","Apontar","Dúvida","Mais alto","Mais baixo","Silêncio"]
-    generate_confusion_matrix(predictions,names)
+    names = ["vattene","vieniqui","perfetto","furbo","cheduepalle","chevuoi","daccordo","seipazzo","combinato","freganiente","ok","cosatifarei","basta","prendere","noncenepiu","fame","tantotempo","buonissimo","messidaccordo","sonostufo","não-antecipado"]
+    generate_confusion_matrix(predictions["labels"], predictions["classes"],names)
     
 
 
 def plot_probability_threshold():
-    values= pickle.load(open("results/prediction_m_g_b.pkl", 'rb'), encoding="bytes")
+    values= pickle.load(open("results/results_dynamic_star_rgb_hand_LSTM_9695.pkl", 'rb'), encoding="bytes")
     predictions = {"classes":[], "labels":[]}
     results = []
+    sizes_samples = []
     for t in range(100):
         t /= 100.0
         corrects = []
@@ -598,10 +622,14 @@ def plot_probability_threshold():
         anticipate = []
         anticipated = -1
         for i,value in enumerate(values):
-            label = value[b'label']
-            pred = value[b'pred']
-            begin,end = value[b'interval']
-            probs = value[b'probs']
+            label = value['label'][0]
+            pred = value['pred'][0]
+            # begin,end = value[b'interval']
+            # probs = np.transpose(value['probs'], (1,0,2))
+            probs = value['probs']
+            # print(value['probs'].shape)
+            # print(probs.argmax(1), pred, label)
+            sizes_samples.append(probs.shape[0])
 
             c = np.argmax(probs, axis= 1)
             p = np.amax(probs, axis= 1)
@@ -610,18 +638,19 @@ def plot_probability_threshold():
             x = np.argmax(m)
             count = 0
 
-            # if x>0:
-            #     for j in range(x, len(m)):
-            #         if m[j]:
-            #             count += 1
-            #             x = j
-            #         else:
-            #             count = 0
-            #             x = 0
+            if x>0:
+                for j in range(x, len(m)):
+                    if m[j]:
+                        count += 1
+                        x = j
+                    else:
+                        count = 0
+                        x = 0
                         
-            #         if count == t:break
+                    if count == t:break
                     
             a = c[x]
+            # print(a,label,x)
             if x >0 and a == label:
                 corrects_ant += 1.0
             
@@ -672,19 +701,26 @@ def plot_probability_threshold():
     axis.plot([u_frame, u_frame],[frame_acc,frame],linestyle='-.',color="b", linewidth=1)
     
 
-    axis.text(u_acc+0.01, acc_frame+0.01,"{}%".format(int(acc_frame*100)))
-    axis.text(u_frame+0.01,frame-0.04,"{}%".format(int(frame*100)))
+    axis.text(u_acc+0.01, acc_frame+0.01,"{}% de Frames".format(int(acc_frame*100)))
+    axis.text(u_frame+0.01,frame-0.04,"{}% de Frames".format(int(frame*100)))
 
-    axis.set_ylabel("Anticipation Accuracy / Observation Ratio(OR)")
+    # axis.set_ylabel("Anticipation Accuracy / Observation Ratio(OR)")
 
-    axis.set_xlabel("Probability")
-    axis.legend([g,o,k,b],["Anticipation Accuracy", "Average OR Anticipation","Maximum Anticipation Accuracy","Minimum Average OR Anticipation"],loc="center left", framealpha=1, frameon=True)
-    axis.set_title("Anticipation vs Probability ($DLSTM_{mho}$)", weight="bold")
+    # axis.set_xlabel("Probability")
+    # axis.legend([g,o,k,b],["Anticipation Accuracy", "Average OR Anticipation","Maximum Anticipation Accuracy","Minimum Average OR Anticipation"],loc="center left", framealpha=1, frameon=True)
+    # axis.set_title("Anticipation vs Probability ($DLSTM_{mho}$)", weight="bold")
+    
+    axis.set_ylabel("Acurácia de Antecipação / Taxa Média de Observação (TMO)")
+    axis.set_xlabel("Probabilidade Estimada")
+    axis.legend([g,o,k,b],["Acurácia de antecipação", "TMO da antecipação","Acurácia máxima de antecipação","Mínimo TMO de antecipação"],loc="center", framealpha=1, frameon=True)
+    axis.set_title("Antecipação vs Probabilidade (DStar iRGB$_{hand}$)", weight="bold")
     
     # axis.set_xlabel("Aditional OR after the first prediction (z)")
     # axis.legend([g,o,k],["Anticipation Accuracy (threshold = 0.9)", "Average OR Anticipation","Maximum Anticipation Accuracy"],loc="center right", framealpha=1, frameon=True)
     #axis.set_title("Anticipation with threshold = 0.9", weight="bold")
     plt.show()
+    sizes_samples = np.array(sizes_samples)
+    print(sizes_samples.min(), sizes_samples.max(), sizes_samples.mean())
 
 
 
@@ -692,26 +728,31 @@ def plot_uncertainty():
     font_act = font_manager.FontProperties(weight='bold',
                                    style='normal', size=10)
     box = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    th=0.2
-    values = pickle.load(open("prediction_gesture3_0_91.16.pkl", 'rb')) #prediction_BBB_9833.pkl
-    values.sort(key = lambda d:d['interval'][0])
-    colors = ["green", "black", "blue", "red","brown", "indigo","coral","lime","orange","yellow", "navy","salmon","gray","darkorange","deepskyblue"]
+    th=0.1
+    values = pickle.load(open("results/results_dynamic_star_rgb_hand_MCLSTM_9745.pkl", 'rb')) #prediction_BBB_9833.pkl
+    # values.sort(key = lambda d:d['interval'][0])
+    colors = ["green", "black", "blue", "red","brown", "indigo","coral","lime","orange","yellow", "navy","salmon","gray","darkorange","darkblue","gold","pink","deepskyblue", "deeppink", "darkgreen", ]
     for i,value in enumerate(values):
         lines = []
-        label = value['label']
-        pred = value['pred']
-        b,e  = value['interval'] 
+        label = value['label'][0]
+        pred = value['pred'][0]
+        # b,e  = value['interval'] 
         fig, axs = plt.subplots(1, 2,figsize=(20, 5))
-        begin,end = value['interval']
-        probs = value['probs']
+        # begin,end = value['interval']
+        # probs = value['probs']
+        probs = np.transpose(value['probs'], (1,0,2))
         vr,h,mi = calc_uncertainties(probs)
         meanst = probs.mean(1)
         std = probs.std(1)
 
-        axs[0].set_xlabel("Frame")
-        axs[0].set_ylabel("Probability")
-        axs[1].set_xlabel("Frame")
-        axs[1].set_ylabel("Mutual Information")
+        # axs[0].set_xlabel("Frame")
+        # axs[0].set_ylabel("Probability")
+        # axs[1].set_xlabel("Frame")
+        # axs[1].set_ylabel("Mutual Information")
+        axs[0].set_xlabel("Frame", fontsize=14)
+        axs[0].set_ylabel("Probabilidade Estimada", fontsize=14)
+        axs[1].set_xlabel("Frame", fontsize=14)
+        axs[1].set_ylabel("Informação Mútua", fontsize=14)
 
         y1  = np.clip(meanst-std,0.0,1.0)
         y2 = np.clip(meanst+std,0.0,1.0)
@@ -734,18 +775,19 @@ def plot_uncertainty():
         #axs[1].plot(norm(vr))
         #axs[1].plot(h )
         line_mi, = axs[1].plot(mi,color="g")
-        line_h, = axs[1].plot(h,color="r")
-        line_vr, = axs[1].plot(vr,color="orange")
+        # line_h, = axs[1].plot(h,color="r")
+        # line_vr, = axs[1].plot(vr,color="orange")
         
 
-        axs[0].set_xlim(0,len(probs)+10)
+        axs[0].set_xlim(0,len(probs)+5)
         line_k, line_b = None, None
-        for v in range(15): 
+        for v in range(20): 
              line, = axs[0].plot(meanst[:,v], color=colors[v])
              axs[0].fill_between(indexes,y1[:,v], y2[:,v],alpha=0.3, facecolor=colors[v])
              if len(lines) < len(colors):lines.append(line)
 
         if xu > 0:
+            
             axs[0].plot([xu,xu],[0,yu],linestyle='--',color="k", linewidth=2)
             axs[0].plot([0,xu],[yu,yu],linestyle='--',color="k", linewidth=2)
 
@@ -753,14 +795,19 @@ def plot_uncertainty():
             axs[1].plot([0,xu],[miu,miu],linestyle='--',color="k", linewidth=2)
             
             tx,ty = [2,yu-0.07] if xu>70 else [xu+3,yu-0.07]
-            axs[0].text(tx,ty ,  "    Act. {} at Frame {}".format(a+1,xu),fontproperties = font_act, bbox = box)
+            # axs[0].text(tx,ty ,  "    Act. {} at Frame {}".format(a+1,xu),fontproperties = font_act, bbox = box)
+            axs[0].text(tx,ty ,  "    Act. {} no Frame {}".format(a+1,xu),fontproperties = font_act, bbox = box)
+
             if a == label:
                  axs[0].text(tx,ty , "V",bbox = box, fontproperties = font_act,color = "g")
             else:
                 axs[0].text(tx,ty , "X",bbox = box, fontproperties = font_act,color = "r")
                 #plt.savefig('charts_uncertainty/chart_act{}_{}.png'.format(str(label+1),i))
+                c
         else:
-            axs[0].text(10, 0.5 , "It was not possible to anticipate", bbox = box,fontproperties = font_act,color = "r")
+            # axs[0].text(10, 0.5 , "It was not possible to anticipate", bbox = box,fontproperties = font_act,color = "r")
+            axs[0].text(5, 0.5 , "Não foi possível antecipar!", bbox = box,fontproperties = font_act,color = "r")
+
             line_k,=axs[1].plot([0,len(mi)],[0.1,0.1],linestyle='--',color="k", linewidth=2)
 
         if x>0:
@@ -771,15 +818,20 @@ def plot_uncertainty():
             line_b, =axs[1].plot([0,x,],[mic,mic],linestyle='-.',color="b", linewidth=2)
        
                 
-        axs[0].set_title("label ({}) / Prediction ({})".format(label+1,pred+1), weight="bold")
-        axs[0].legend(lines+[line_k,line_b],["{}".format(i) for i in range(1,len(colors)+1)]+["MI < {}".format(th),"prob >= 0.9"],loc="center right")
-        axs[1].legend([line_mi,line_h,line_vr,line_k,line_b],["MI","MI < {}".format(th),"prob >= 0.9"])
-        axs[1].set_title("Uncertainty - (MI - Mutual Information)", weight="bold")
-        #plt.show()
-        #return 
+        # axs[0].set_title("label ({}) / Prediction ({})".format(label+1,pred+1), weight="bold")
+        # axs[0].legend(lines+[line_k,line_b],["{}".format(i) for i in range(1,len(colors)+1)]+["MI < {}".format(th),"prob >= 0.9"],loc="center right", ncol = 2, shadow=True,  frameon=True, fancybox=True)
+        # axs[1].legend([line_mi,line_h,line_vr,line_k,line_b],["MI","MI < {}".format(th),"prob >= 0.9"])
+        # axs[1].set_title("Uncertainty - (MI - Mutual Information)", weight="bold")
+
+        axs[0].set_title("Label ({}) / Predição ({})".format(label+1,pred+1), weight="bold", fontsize=16)
+        axs[0].legend(lines+[line_k,line_b],["{}".format(i) for i in range(1,len(colors)+1)]+["MI < {}".format(th),"prob >= 0.9"],loc="center right", ncol = 2, shadow=True,  frameon=True, fancybox=True)
+        axs[1].legend([line_mi,line_k,line_b],["MI","MI < {}".format(th),"prob >= 0.9"])
+        axs[1].set_title("Incerteza - (Informação Mútua - MI)", weight="bold", fontsize=16)
+        # plt.show()
+        # return 
         #if xu<=0 or a != label:
 
-        plt.savefig('charts/chart_act_({}-{})_{}_{}.png'.format(begin,end,label+1,i))
+        plt.savefig('charts/uncetainty_hand_{}_{}.png'.format(label+1,i))
         plt.close()
 
 
@@ -1029,19 +1081,44 @@ def calc_uncertainties(probs):
     return h,mi,h+mi
 
 
+def get_vote_prediction():          
+    values_u = pickle.load(open("results/results_dynamic_star_rgb_hand_MCLSTM_9745.pkl", 'rb'), encoding="bytes")
+    predictions = {"classes":[], "labels":[]}   
+    corrects = []
+    for i,value in enumerate(values_u):
+        label = value['label'][0]
+        # pred = value['pred'][0]
+        # begin,end = value['interval']
+        probs = value['probs']
+        pred = round(np.argmax(probs.mean(0)[-2:],1).mean())
+        print(pred)
+        predictions["labels"].append(label)
+        predictions["classes"].append(pred)
+    
+        corrects.append(pred==label)
+    print(sum(corrects)/len(corrects))
+
 
 if __name__ == "__main__": 
+    # get_vote_prediction()
     # show_video()
    # generate_video()
     # plot_probability_threshold()
-    plot_conf_matrix()
-    # plot_uncertainty_threshold()
+    plot_uncertainty_threshold()
+    # plot_conf_matrix()
     #plot_uncertainty()
     #plot_all_charts()
     #plot_acc_classes()
     # plot_uncertainty()
 
       
+
+
+
+
+
+
+
 
 
 

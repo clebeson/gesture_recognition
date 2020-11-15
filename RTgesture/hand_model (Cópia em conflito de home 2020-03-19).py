@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import csv
 import sys
+import time
 import os
 import argparse
 import math
@@ -10,12 +11,14 @@ import glob
 import pickle
 import random
 import torch
+# from parallel import DataParallelModel, DataParallelCriterion
+from torch.nn.parallel import DataParallel
 import torch.nn as nn
 from torch.nn import functional as F
-from dataset import ISDataset
 from itertools import product
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import skimage as sk
 import utils
 import logging
 import threading
@@ -23,19 +26,17 @@ from torch.optim.lr_scheduler import StepLR
 from torch.autograd import Variable
 import bayesian_layers as bl
 import random 
+from skimage import io, transform
+from torchvision import transforms, models
 from torch.utils.data import Dataset, DataLoader
 from skeleton import *
+from hand_data_transformation import HandTrasformation
+from hand_dataset import HandsDataset
 torch.manual_seed(30)
 np.random.seed(30)
 random.seed(30) 
 
-class GaussianNoise(nn.Module):
-    def __init__(self, stddev):
-        super(GaussianNoise,self).__init__()
-        self.stddev = stddev
 
-    def forward(self, x):
-        return x + torch.randn_like(x) 
 
 class RTGR(nn.Module):
     
@@ -73,29 +74,37 @@ class RTGR(nn.Module):
              }
         self.data_type = data_type
 
+        #self.norm = nn.InstanceNorm1d(input_size)
         #Embedding
 
-        self.input_size = input_size
-        self.embeding_size = 16
-        self.bfc1 = bl.Linear(self.input_size, 32, **linear_args)
-        self.bfc2 = bl.Linear(32, self.embeding_size, **linear_args)
-        self.fc1 = nn.Sequential(self.bfc1,nn.ReLU())
-        self.fc2 = nn.Sequential(self.bfc2,nn.ReLU())
-        #weights = [1./21, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,1.0, 1.0, 1.0, 1.0, 1.0]
-        weights = [1./1.5, 1.0]
-
-        class_weights = torch.FloatTensor(weights).cuda()
+        model = models.resnet18(pretrained=True)
+        features = list(model.children())
+        
+        conv = features[0]
+        self.features = nn.Sequential(*features[1:-1])
+        self.conv_left = utils.inflate_conv(conv,
+                 time_dim=4,
+                 time_padding=0,
+                 time_stride=1,
+                 time_dilation=1,
+                 center=False)
+        
+        self.conv_right = utils.inflate_conv(conv,
+                 time_dim=4,
+                 time_padding=0,
+                 time_stride=1,
+                 time_dilation=1,
+                 center=False)
         self.loss_fn = nn.NLLLoss(weight = class_weights)  if output_size == 2 else nn.NLLLoss()
-        self.output_size = output_size #12
+        self.output_size = 15 #12
         self.hidden_dim = hidden_dim #256
         self.n_layers = n_layers #2
         self.sharpen = False
-        self.lstm = bl.LSTM( input_size = self.embeding_size,\
+        self.lstm = bl.LSTM( input_size = 512,\
                                     hidden_size = self.hidden_dim, num_layers = self.n_layers, \
                                     batch_first=True,**rnn_args) 
-        
+                                    
         self.dropout = dropout
-        
         self.fc = bl.Linear(self.hidden_dim, self.output_size, **last_linear_args)
         self.dp_training = True
         self._baysian_layers = []
@@ -106,15 +115,23 @@ class RTGR(nn.Module):
             layer.sampling = sampling
             layer.store_samples = store
 
-    def forward(self, x, hidden):
+    def forward(self, x,x2, hidden):
+        b = x2
+        batch_size, seq_size, _, C,N,H,W = x.size()
+        hl, hr = x[:,:,0].reshape(-1,C,N,W,W), x[:,:,1].reshape(-1,C,N,W,W)
+        hands = self.conv_left(hl) + self.conv_right(hr)
+        features = self.features(hands.squeeze())
 
-        x = self.fc1(x)
-        emb = self.fc2(x)
-        out, hidden_out = self.lstm(emb, hidden)
+        # time_distributed = []
+        # for i in range(seq_size):
+            # time_distributed.append(features.squeeze().unsqueeze(1))
+        # features = torch.cat(time_distributed,1)
+        features = features.view(batch_size, seq_size,-1)
+        out, hidden_out = self.lstm(features, hidden)
         out = self.fc(out) 
-        
         out = out.contiguous().view(-1, out.size(-1))
-        return out, hidden_out
+       
+        return  F.log_softmax(out,1) , hidden_out
 
     def set_dropout(self, value, training=True):
         self.dropout = value
@@ -132,20 +149,24 @@ class RTGR(nn.Module):
         output, hidden = self.lstm(x, hidden, gradients)
         return output, hidden
 
+    def parallelize(self):
+        model = DataParallel(self)
+        # self.loss_fn = DataParallelCriterion(self.loss_fn)
+        return model
 
     def get_nll(self, output, targets):
         """
         return:
             NLL: Negative Loglikelihood Loss
         """
-        return self.loss_fn(F.log_softmax(output,1), targets)
+        return self.loss_fn(output, targets)
 
 
     def get_baysian_layers(self):
         if not self._baysian_layers:
             self._baysian_layers = [module for module in self.modules() if isinstance(module,bl.BaseLayer)]
         return self._baysian_layers
-    
+
 
     def get_loss(self, output, targets, batch):
         """
@@ -158,7 +179,7 @@ class RTGR(nn.Module):
         
 
         # KL divergence between posterior and variational prior distribution
-        KL =  Variable(torch.zeros(1)).to(output.device) 
+        KL =  Variable(torch.zeros(1)).to(targets.device) 
         
         for layer in self.get_baysian_layers(): 
             KL += layer.get_kl()
@@ -198,7 +219,7 @@ class optmize:
         logstd2 = -4
         pi = 0.2
         hiddens = [512,256,1024]
-        learning_rates= [5e-3,1e-3, 1e-2]
+        learning_rates= [1e-4,5e-3, 5e-2]
         drops = [0.1, 0.12, 0.15, 0.2]
         epoch = args.epoch
         params.hidden_dim = args.hidden_dim
@@ -213,10 +234,20 @@ class optmize:
         params.clip = clip
         params.mode = args.mode
         
-        dataset = ISDataset(args.seq)
-        dataset.config_data(spotting = False)
-        test_data, test_label =  dataset.get_test()
-        data_loader = DataLoader(dataset, batch_size=batch, shuffle=True, num_workers=args.workers)
+        data_loader = DataLoader(HandsDataset(type = "train", max_seq=max_clip_sequence, \
+                                              transform=HandTrasformation(output_size = (50,50), data_aug=True)), \
+                                batch_size=batch, \
+                                pin_memory = False,\
+                                shuffle=True, \
+                                num_workers=args.workers,\
+                                drop_last = True)
+
+        test_data, test_label = HandsDataset(type = "test").get_data()
+        # dataset = HandsDataset(args.seq)
+        # dataset.config_data(spotting = False)
+        # test_data, test_label =  dataset.get_test()
+        # dataset.encode_train(max_clip_sequence)
+        # data_loader = DataLoader(dataset, batch_size=batch, shuffle=True, num_workers=args.workers, pin_memory = True)
         
 
         start = int(clip*10)
@@ -232,29 +263,10 @@ class optmize:
             accuracy = np.zeros((folds))
             base_name,_ = os.path.splitext(args.logfile)
             test_results = []
-            # for k, (train_data, test_data) in  enumerate(dataset.cross_validation(k=folds, spotting = args.spotting)): 
-            #     model = RTGR(args.data_type, input_size, output_size, args.hidden_dim,n_layers, mode = args.mode, logstd1 = logstd1, logstd2 = logstd2, pi = pi, dropout = args.dropout)
-            #     model = model.to(self.device)
-            #     model = self.train(params,model, train_data, max_clip_sequence, self.device, logging)
-            #     if args.spotting:
-            #         acc = self.predict_frame_wise(model, test_data,test_results, logging, args.mode)
-            #     else:
-            #         acc = self.predict_gesture_wise(model, test_data,test_results, logging, args.mode)
-
-            #     accuracy[k] = acc
-            #     if acc < args.thres_train:break
-                
-            #     if acc > 0.9:
-            #         model_save = {
-            #             "hidden_dim":h,
-            #             "num_layers":args.n_layers,
-            #             "model":model.state_dict()
-            #         }
-            #         torch.save(model_save, "saved_models/model_{}_{}_{:.2f}.pth".format(base_name,k,acc*100))
-            #         pickle.dump(test_results, open( "predictions/prediction_{}_{}_{:.2f}.pkl".format(base_name,k,acc*100), "wb" ), protocol=2)
             model = RTGR(args.data_type, input_size, output_size, args.hidden_dim,n_layers, mode = args.mode, logstd1 = logstd1, logstd2 = logstd2, pi = pi, dropout = args.dropout)
             model = model.to(self.device)
-            
+            model = model.parallelize()
+
             model = self.train(params,model, data_loader, max_clip_sequence, self.device, logging)
             
             if args.spotting:
@@ -277,7 +289,7 @@ class optmize:
         num_class = 15
         log.info("Predicting gestures...")
         model.to(self.device)
-        model.set_dropout(0.1)
+        model.module.set_dropout(0.1)
         model.eval()
         criterion = nn.NLLLoss()
         running_loss = 0
@@ -292,14 +304,15 @@ class optmize:
                 probs = np.zeros((len(video),mc_samples, num_class))
                 loss = 0
                 hidden = None if mode != "bbb" else [None]*mc_samples
-                label = np.expand_dims(label[0],0)
-
+                label =np.array([label[0]])-1
+                
                 for i, data in enumerate(video):
                     data = np.expand_dims(data,0)
+                    
                     if mode == "bbb":
                         data = torch.from_numpy(data).float().unsqueeze(1)
                         data = data.to(self.device)
-                        label = torch.tensor(label).long()
+                        data_label = torch.tensor(label).long()
                         for mc in range(mc_samples):
                             out, hc = model(data,hidden[mc])
                             out = out.cpu()
@@ -307,9 +320,9 @@ class optmize:
                             probs[i,mc] = F.log_softmax(out,1).exp().detach().numpy()
                     else:
                         #creating a batch with same data. It improves the performance of MC samples
-                        label = np.repeat(label,mc_samples,0)
+                        data_label = torch.from_numpy(np.repeat(label,mc_samples,0))
+                        #print(data_label.shape, data_label)
                         data = np.repeat(data,mc_samples,0)
-                        label = torch.tensor(label).long()
                         data = torch.from_numpy(data).float().unsqueeze(1)
                         data = data.to(self.device)
                         out,hidden = model(data,hidden)
@@ -319,17 +332,17 @@ class optmize:
                         hidden = ([h.data for h in hidden])
                     
                         probs[i] = F.log_softmax(out,1).exp().detach().numpy()
-
+                
                 #label = label.unsqueeze(0)
-                loss = criterion(F.log_softmax(out,1), label)
+                loss = criterion(F.log_softmax(out,1), data_label)
                 pred = np.argmax(probs.mean(1), 1)[-1]
-                label = label.contiguous().view(-1)
+                data_label = data_label.contiguous().view(-1)
                 total += 1
                 running_loss += loss.item() 
-                label = label.data.numpy()[0]
+                data_label = data_label.data.numpy()[0]
                 # if pred != label:
                 #     print(pred,label)
-                results.append({"pred":pred, "label":label,  "probs":probs, "interval":interval})
+                results.append({"pred":pred, "label":data_label,  "probs":probs, "interval":interval})
                 running_corrects += np.sum(pred == label)
 
             log.info("---> Prediction loss = {}  accuracy = {:.2f}%".format( running_loss/total, running_corrects/float(total)*100) )
@@ -408,7 +421,7 @@ class optmize:
         sequence = args.seq #10
         clip = args.clip #5
         lr=args.lr#1e-3
-        model.set_dropout(args.dropout)
+        model.module.set_dropout(args.dropout)
 
         optimizer = optim.Adam(model.parameters(), lr=lr)
         scheduler = StepLR(optimizer, step_size=1, gamma=0.99)
@@ -434,26 +447,40 @@ class optmize:
             probs = []
 
             
-            
+            start = time.time()
             for data in dataloader:
-                data,label = torch.from_numpy(data["skeletons"]).to(device), torch.from_numpy(data["labels"]).to(device)
+                #print("load took:",time.time()-start)
+                data,label = data["images"].to(device), data["labels"].to(device)
                 model.zero_grad()
-                label = label.contiguous().view(-1)-1
                 
-
+                
                 size = data.shape[1] // sequence
-                
+                #print(data.shape)
                 for s in range(size):
                     seq_label = label[:,s*sequence:(s+1)*sequence]
                     seq_data = data[:,s*sequence:(s+1)*sequence]
-                    outputs = []
+                    seq_label = seq_label.contiguous().view(-1)
 
-                    out, hidden = model(data, hidden)
+                    out,hidden = model(seq_data,seq_data, hidden)
+                    
+                    # out =[]
+                    # hidden_h = []
+                    # hidden_c = []
+                    
+                    # for (o,h) in output:
+                    #     out.append(o)
+                    #     hidden_h.append(h[0].data)
+                    #     hidden_c.append(h[1].data)
+                    
+                    NLL, KL = model.module.get_loss(out, seq_label,batch)
+                    
+                    # out = torch.cat(out,0)
+                    # hidden = [torch.cat(hidden_h,0),torch.cat(hidden_c,0)]
+
                     hidden = ([h.data for h in hidden])
                     
 
                     # proper scaling for sequence loss
-                    NLL, KL = model.get_loss(out, label,batch)
                     NLL_term = NLL
                     l = None
                     if args.mode == "mc":
@@ -476,18 +503,14 @@ class optmize:
 
                 hidden = None
                 out = out.view(-1, sequence,out.size(1))[:,-1,:]
-                label = label.view(-1, sequence)[:,-1]
+                label = seq_label.view(-1, sequence)[:,-1]
                 prob, preds = torch.max(out, 1)
                 probs.append(prob.cpu().detach().numpy())
                 total += out.size(0)
                 running_loss += NLL_term.item() * out.size(0)
-                running_kl += kl_term.item() * out.size(0)
+                #running_kl += kl_term.item() * out.size(0)
                 running_corrects += torch.sum(preds == label.data).double()
-            
-            
-            probs = np.array(probs)
-            time = np.arange(len(probs))
-            
+            start = time.time()
             acc = running_corrects/float(total)
             accuracies.append(acc)
 
@@ -495,11 +518,11 @@ class optmize:
 
             if epoch > 99 and acc < 0.3:
                 break
-
+            
             #log information at each 50 epochs
-            if epoch%100==0:log.info("---> Epoch {:3d}/{:3d}    loss (NLL/KL) = {:4.4f}/{:4.4f}      accuracy = {:2.2f}%".format(epoch + 1,epochs, running_loss/total, running_kl/total, running_corrects/float(total)*100) )
+            if epoch%100==0:log.info("---> Epoch {:3d}/{:3d}    loss (NLL/KL) = {:4.4f}/{:4.4f}      accuracy = {:2.2f}%".format(epoch + 1,epochs, running_loss/total, 0, running_corrects/float(total)*100) )
         
-        log.info("---> Epoch {:3d}/{:3d}    loss (NLL/KL) = {:4.4f}/{:4.4f}      accuracy = {:2.2f}%".format(epoch + 1,epochs, running_loss/total, running_kl/total, running_corrects/float(total)*100) )
+        log.info("---> Epoch {:3d}/{:3d}    loss (NLL/KL) = {:4.4f}/{:4.4f}      accuracy = {:2.2f}%".format(epoch + 1,epochs, running_loss/total, 0, running_corrects/float(total)*100) )
         #return a trained model
         return model
 
@@ -535,4 +558,3 @@ def hyper_tuning():
 if __name__ == "__main__":
      #hyper_tuning()
      optmize()
-

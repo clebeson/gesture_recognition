@@ -88,14 +88,36 @@ def handDetect(skeleton, image, out_size = (240,320)):
        
     return np.uint8(images)
 
+
+
 if __name__ == "__main__":
-    files = glob.glob("ifes_samples/*_3d.json")
+    files = glob.glob("/notebooks/datasets/ufes-2020-01-23/*_3d.json")
+    
+    files = sorted(files,key = lambda  file: file.replace("_3d.json", "").split("/")[-1])
     names = [file.replace("_3d.json", "") for file in files]
+    print(names)
     cams = ["c00", "c01","c02","c03"]
     out_size = (110,120)
-    for name in names:
+    skeletons_3d = []
+    labels = np.array([])
+    count = 0
+
+    for name,file in zip(names,files):
         videos = []
         files2d = []
+        n = name.split("/p")[-1]
+        p, g = n.split("g")
+        with open(file) as f:
+            data = json.load(f)
+
+        label = np.zeros(len(data["localizations"]))
+        with open(file.replace("_3d","_spots")) as f:
+            spots = json.load(f)
+        for l in spots["labels"]:
+            b = l["begin"]
+            e = l["end"] + 1
+            label[b:e] = int(g)
+        labels = np.concatenate([labels, label])
         
         for file in [ "{}{}_2d.json".format(name,cam) for cam in cams]:
             with open(file) as f:
@@ -105,37 +127,41 @@ if __name__ == "__main__":
             videos.append(get_frames(file) )
 
         size = len(videos[0])
-        for sample in range(size):
-            hands = [[],[]]
-           # t = time.time()
-            for i in range(4):
-                has_hands = False
-                img = videos[i][sample]
-                localization = next(files2d[i])
-                annotations = ObjectAnnotations(localization) 
-                skeletons = [Skeleton(obj) for obj in annotations.objects]
-                # if i == 2: 
-                #     print(len(skeletons))
-                #     cv2.imshow("image",img)
-                    # cv2.waitKey(30)
-                for skl in skeletons:
-                    joint = skl.GetJoint(10) 
-                    if (joint.x >250 and joint.x < 900) and (joint.y>275 and joint.y<565):
-                        hand = handDetect(skl,img, out_size)
-                        #hand = [np.uint8(extractSkin(h)) for h in hand]
-                        hands[0].append(hand[0])
-                        hands[1].append(hand[1])
-                        has_hands= True
-                        break
-                if not has_hands:
-                    size = out_size+(3,)
-                    hands[0].append(np.zeros(size))
-                    hands[1].append(np.zeros(size))
+        # for sample,  in range(size):
+
+        for sample, localization in enumerate(data["localizations"]):
+            annotations = ObjectAnnotations(localization)  
+            obj = annotations.objects[0]
+            skl = Skeleton(obj)
+            skeletons_3d.append(skl)
+        #     hands = [[],[]]
+        #    # t = time.time()
+        #     for i in range(4):
+        #         has_hands = False
+        #         img = videos[i][sample]
+        #         localization = next(files2d[i])
+        #         annotations = ObjectAnnotations(localization) 
+        #         skeletons = [Skeleton(obj) for obj in annotations.objects]
+        #         for skl in skeletons:
+        #             joint = skl.GetJoint(10) 
+        #             # if (joint.x >250 and joint.x < 900) and (joint.y>275 and joint.y<565):
+        #             hand = handDetect(skl,img, out_size)
+        #             #hand = [np.uint8(extractSkin(h)) for h in hand]
+        #             hands[0].append(hand[0])
+        #             hands[1].append(hand[1])
+        #             has_hands= True
+        #             break
+        #         if not has_hands:
+        #             size = out_size+(3,)
+        #             hands[0].append(np.zeros(size))
+        #             hands[1].append(np.zeros(size))
             
-            hands = np.vstack([np.hstack(hand) for hand in hands] )
-            #print("elapsed = ",time.time() - t)
-            
-            cv2.imshow("hand",hands[:,:,[2,1,0]])
-            #cv2.imshow("image", img)
-            cv2.waitKey(100)
+        #     hands = np.vstack([np.hstack(hand) for hand in hands] ).astype(np.uint8)
+        #     m.imsave("images_ufes/ufes_{}_{}_{}.png".format(int(p),int(g),count),hands)
+        #     count += 1
+    
+    labels = np.array(labels)
+
+    print(len(labels), len(skeletons_3d))
+    pickle.dump({"skeletons":skeletons_3d, "labels":labels}, open("{}.pkl".format("ufes_R_dataset_skl"),"wb"))
                         

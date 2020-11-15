@@ -386,7 +386,7 @@ class Linear(BaseLayer):
             weight = self._params.weight
             bias = self._params.bias
             layer = F.linear(inputs, weight, bias)
-            if self.dropout in [0.0,1.0]: 
+            if (self.dropout in [0.0,1.0]): 
                 return layer
             return F.dropout(layer, p=self.dropout, training=self.training)
 
@@ -394,7 +394,7 @@ class Linear(BaseLayer):
             weight = self._params.weight
             bias = self._params.bias
             layer = F.linear(inputs, weight, bias)
-            if self.dropout in [0.0,1.0]:
+            if (self.dropout in [0.0,1.0]):
                  return layer
             return F.dropout(layer, p=self.dropout, training=True)
 

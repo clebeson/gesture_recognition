@@ -123,18 +123,12 @@ class Parameters(nn.Module):
         self._store_samples = False
         if self._type == ModelType.BBB:
             self._w_logvar = nn.Parameter(torch.Tensor(*size_w))
+            self._b_logvar = nn.Parameter(torch.Tensor(size_b))
             self._weight = GaussianDistribution(self._w_mu, self._w_logvar)
+            self._bias = GaussianDistribution(self._b_mu, self._b_logvar)
             self._weight.set_prior_params(mu,logstd1,logstd2,pi)
-            if size_b is not None:
-                self._b_logvar = nn.Parameter(torch.Tensor(size_b))
-                self._bias = GaussianDistribution(self._b_mu, self._b_logvar)
-                self._bias.set_prior_params(mu,logstd1,logstd2,pi)
-                self._values += [self._w_logvar,self._b_logvar]
-            else:
-                self._b_logvar = None
-                self._bias = None
-                self._values += [self._w_logvar]
-
+            self._bias.set_prior_params(mu,logstd1,logstd2,pi)
+            self._values += [self._w_logvar,self._b_logvar]
             self._sampling = True
             self._store_samples = True
             
@@ -142,19 +136,14 @@ class Parameters(nn.Module):
         elif self._type.value in [2,3]: #VARDROP ADAPTATIVE
             self._w_logvar = nn.Parameter(torch.Tensor(*size_w))
             self._weight = self._w_mu
-            if size_b is not None:
-                self._b_logvar = nn.Parameter(torch.Tensor(size_b))
-                self._bias = self._b_mu
-                self._values += [self._w_logvar, self._b_logvar]
-            else:
-                self._b_logvar = None
-                self._bias = None
-                self._values += [self._w_logvar]
-
+            self._b_logvar = nn.Parameter(torch.Tensor(size_b))
+            self._bias = self._b_mu
+            self._values += [self._w_logvar, self._b_logvar]
         else:
             self._weight = self._w_mu
-            self._bias = self._b_mu if size_b is not None else None
+            self._bias = self._b_mu
         
+
         self.reset_parameters()
 
 
@@ -165,12 +154,10 @@ class Parameters(nn.Module):
         stdv = 1. / math.sqrt(self._w_mu.size(1))
         logvar_init = math.log(stdv) * 2
         self._w_mu.data.uniform_(-stdv, stdv)
-        if  self._b_mu is not None:
-            self._b_mu.data.uniform_(-stdv, stdv)
-        if self._type  == ModelType.BBB or self._type.value in [2,3]:
+        self._b_mu.data.uniform_(-stdv, stdv)
+        if self._type  == ModelType.BBB or self._type.value in [2,3] :
             self._w_logvar.data.fill_(logvar_init)
-            if self._b_logvar is not None:
-                self._b_logvar.data.fill_(logvar_init)
+            self._b_logvar.data.fill_(logvar_init)
        
     
     
@@ -207,7 +194,7 @@ class Parameters(nn.Module):
 
     @property
     def bias(self):
-        if self._bias is None: return None
+        assert self._bias is not None
         if isinstance(self._bias, GaussianDistribution):
             if self._sampling: return self._bias.sample(self._store_samples)
             else: return self._bias.mu
@@ -225,6 +212,7 @@ class Parameters(nn.Module):
             kl += self._weight.kl_div()
             kl += self._bias.kl_div()
         if kl == 0:return 1e-18
+            
         return kl
 
 
@@ -246,6 +234,30 @@ class BaseLayer(nn.Module):
 
     def _apply(self, fn):
         return super(BaseLayer, self)._apply(fn)
+
+    # def _log_variational_posterior(self):
+    #     """
+    #     theta is from a multivariate gaussian with diagnol covariance
+    #     return the loglikelihood.
+    #     :param weights: a list of weights
+    #     :param means: a list of means
+    #     :param logvars: a list of logvars
+    #     :return ll: loglikelihood sum over list
+    #     """
+    #     assert len(self._list_params) > 0
+    #     if  len(self._list_params) == 1: return self._list_params[0].log_posterior()
+    #     return torch.cat([p.log_posterior() for p in self._list_params])
+
+    # def _log_prior(self):
+    #     """
+    #     :param weights: a list of weights
+    #     :param logstd: a list of means
+    #     :param logstd: number
+    #     :return ll: likelihood sum over the list
+    #     """
+    #     assert len(self._list_params) > 0
+    #     if  len(self._list_params) == 1: return self._list_params[0].log_prior()
+    #     return torch.cat([p.log_prior() for p in self._list_params])
     
     def _bbb_kl(self):
         assert len(self._list_params) > 0
@@ -256,16 +268,28 @@ class BaseLayer(nn.Module):
 
     def _variational_dropout_kl(self):
         assert len(self._list_params) > 0
-        #It does not use the complete formula. It uses the described in the appendix C  of the Paper)
+        #It does not use the comple formula. It uses the described in the appendix C  of the Paper)
         #c = [ 1.16145124, 1.50204118, 0.58629921]
         kl = 0.0
+        #total = 1e-18
         for p in self._list_params:
             _,logalpha = p.weight
             _,logalpha_b = p.bias
-          
+            #alpha_t = F.softplus(logalpha, beta=1, threshold=20) +1e-16
+            #alpha_b = F.softplus(logalpha_b, beta=1, threshold=20) + 1e-16
+
+            #logalpha = (0.5*logvar).exp() / (theta**2 + 1e-16)
+            #alpha_b = (0.5*logvar_b).exp() / (bias**2 + 1e-16)
+#
+            
             logalpha = self.clip(logalpha, (-7,-1e-6))
             logalpha_b = self.clip(logalpha_b, (-7,-1e-6))
-            kl = kl + (-0.5*logalpha).sum() + (-0.5*logalpha_b).sum()
+
+            kl += (-0.5*logalpha).sum() + (-0.5*logalpha_b).sum()
+            
+        #print(kl)
+            #total = alpha.numel()
+        #print(kl)
         return kl if isinstance(kl,torch.Tensor) else 0.0
 
     @staticmethod
@@ -302,47 +326,7 @@ class BaseLayer(nn.Module):
     def eval(self):
         return self.train(False)
     
-class BaseRNNLayer(nn.Module):
-    def __init__(self, type):
-        super(BaseRNNLayer, self).__init__()
-        self._type = type
-        self._list_params = []
 
-    
-    def register_layers(self, parameters):
-        parameters = parameters if isinstance(parameters,nn.ModuleList) else [parameters]
-        for i, p in enumerate(parameters):
-            self._list_params.append(p)
-
-    def _apply(self, fn):
-        return super(BaseRNNLayer, self)._apply(fn)
-
-    def get_kl(self):
-        assert len(self._list_params) > 0
-        kl = 0
-        for p in self._list_params:
-             kl += p.get_kl()
-        return kl
-
-
-    def clear_samples(self):
-        for p in self._list_params: p.clear_samples()
-
-
-    def sampling(self,sampling,store):
-        for p in self._list_params: 
-            p.sampling(sampling,store)
-
-
-    def train(self, mode=True):
-        self.sampling(mode,mode)
-        self.training = mode
-        for module in self.children():
-            module.train(mode)
-        return self
-
-    def eval(self):
-        return self.train(False)
 
 
 class Linear(BaseLayer):
@@ -350,10 +334,10 @@ class Linear(BaseLayer):
     adapted from torch.nn.Linear
     with a Gaussian as prior
     """
-    def __init__(self, in_features, out_features, bias = True, mu = 0, logstd1 = -1, logstd2 = -2, pi = 0.5, type = ModelType.BBB, dropout = 0.0):
+    def __init__(self, in_features, out_features, mu = 0, logstd1 = -1, logstd2 = -2, pi = 0.5, type = ModelType.BBB, dropout = 0.0):
         super(Linear, self).__init__(type = type)
         self._params = Parameters(size_w = (out_features,in_features), \
-                                      size_b = (out_features) if bias else None, \
+                                      size_b = (out_features), \
                                       mu = mu, \
                                       logstd1=logstd1, \
                                       logstd2=logstd2, \
@@ -361,20 +345,14 @@ class Linear(BaseLayer):
                                       type=type)
 
         
-        self._dropout = dropout
+        self.dropout = dropout
         self.register_layer_parameters(self._params)
 
     def _apply(self, fn):
         return super(Linear, self)._apply(fn)
     
-    @property
-    def dropout(self):
-        return self._dropout
-
-    @dropout.setter
-    def dropout(self,value):
-        self._dropout = value
-
+    def set_dropout(self,value):
+        self.dropout = value
     #Do remember to clean samples.
     def forward(self, inputs):
         if self._type == ModelType.BBB:
@@ -386,16 +364,14 @@ class Linear(BaseLayer):
             weight = self._params.weight
             bias = self._params.bias
             layer = F.linear(inputs, weight, bias)
-            if self.dropout in [0.0,1.0]: 
-                return layer
-            return F.dropout(layer, p=self.dropout, training=self.training)
+            if (self.dropout in [0.0,1.0]) or not self.training: return layer
+            return F.dropout(layer, p=self.dropout, training=True)
 
         elif self._type == ModelType.MC_DROP:
             weight = self._params.weight
             bias = self._params.bias
             layer = F.linear(inputs, weight, bias)
-            if self.dropout in [0.0,1.0]:
-                 return layer
+            if (self.dropout in [0.0,1.0]): return layer
             return F.dropout(layer, p=self.dropout, training=True)
 
 
@@ -412,6 +388,7 @@ class Linear(BaseLayer):
             if not self.training:
                 return F.linear(inputs,theta,bias)
             eps = 1e-8
+            #logalpha = logvar - 2 * torch.log(torch.abs(theta) + eps)
 
             # calculate std
             size = list(inputs.shape)
@@ -496,17 +473,18 @@ class Conv2d(BaseLayer):
     def forward(self, input):
         return self.conv2d_forward(input, self.weight)
 
-    def __init__(self, in_features, out_features, kernel_size, stride=1, padding = 0, dilation=1, groups=1,
+    def __init__(self, in_features, out_features, kernel_size, strid=1, pedding = 0, dilation=1, groups=1,
                  bias=True, padding_mode='zeros', mu = 0, logstd1 = -1, logstd2 = -2, pi = 0.5, type = ModelType.BBB, dropout = 0.2):
         super(Conv2d, self).__init__(type = type)
         self.kernel_size = (kernel_size,kernel_size)
-        self.stride = (stride, stride)
-        self.padding = (padding, padding)
-        self.dilation = (dilation, dilation)
+        self.stride = (stride,stride)
+        self.padding = (padding,padding)
+        self.dilation = (dilation,dilation)
         self.groups = groups
         self.dropout = dropout
+
         self._params = Parameters(size_w = (out_features,in_features//groups,*self.kernel_size), \
-                                      size_b = (out_features) if bias else None, \
+                                      size_b = (out_features), \
                                       mu = mu, \
                                       logstd1=logstd1, \
                                       logstd2=logstd2, \
@@ -627,18 +605,18 @@ class Conv2d(BaseLayer):
 
 
 
-class LSTM(BaseRNNLayer):
+class LSTM(nn.Module):
 
     def __init__(self,input_size, hidden_size,
                  num_layers=1, batch_first=False,
                  dropout=0, mu = 0, logstd1 = -1, logstd2 = -2, pi = 0.5, type = ModelType.BBB, peephole = False):
-        super(LSTM, self).__init__(type = type)
+        super(LSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.peephole = peephole
         self.batch_first = batch_first
-        self._dropout = dropout
+        self.dropout = dropout
         gate_size = 4 * hidden_size
         self._dense_layers_input = nn.ModuleList()
         self._dense_layers_hidden = nn.ModuleList()
@@ -648,21 +626,11 @@ class LSTM(BaseRNNLayer):
             self._dense_layers_input.append(Linear(layer_input_size, gate_size,mu = mu, logstd1=logstd1, logstd2=logstd2, pi=pi, dropout = dropout, type = type))
             self._dense_layers_hidden.append(Linear(hidden_size, gate_size, mu = mu,  logstd1=logstd1,logstd2=logstd2,pi=pi, dropout = dropout, type = type))
     
-        self.register_layers(self._dense_layers_input)
-        self.register_layers(self._dense_layers_hidden)
-    
-
-    @property
-    def dropout(self):
-        return self._dropout
-
-    @dropout.setter
-    def dropout(self,value):
-        self._dropout = value
+    def set_dropout(self,dropout):
         for li,lh in zip(self._dense_layers_input, self._dense_layers_hidden):
-            li.dropout = value
-            lh.dropout = value
-
+            li.dropout = dropout
+            lh.dropout = dropout
+            
 
 
     def lstm_peephole_cell(self, x, hidden, dense_i, dense_h ):
@@ -727,24 +695,25 @@ class LSTM(BaseRNNLayer):
         
         #Iterate over the input sequence and return the last layer's result
         seq_len = input.size(1) 
+        cur_layer_input = input
+        layers_last_hidden = []
         lstm_cell = self.lstm_peephole_cell if self.peephole else self.lstm_cell
-        output_seq = []
-        for t in range(seq_len):
-            x = input[:,t,:]
-            last_seq_h, last_seq_c = [], []
-            for layer in range(self.num_layers):
-                hx = (hidden[0][layer], hidden[1][layer])
-                dense_i, dense_h = self._dense_layers_input[layer],  self._dense_layers_hidden[layer]
+        for layer in range(self.num_layers):
+            dense_i, dense_h = self._dense_layers_input[layer],  self._dense_layers_hidden[layer]
+            output_seq = []
+            hx = (hidden[0][layer], hidden[1][layer])
+            #Iterate over sequence
+            for t in range(seq_len):
+                x = cur_layer_input[:,t,:]
                 h, c = lstm_cell(x, hx, dense_i, dense_h)
-                last_seq_h.append(h)
-                last_seq_c.append(c)
-                x = h
-            hidden = (last_seq_h, last_seq_c)
-            output_seq.append(h)
-        output_seq = torch.stack(output_seq, dim=1)
-        h = torch.stack(last_seq_h,dim=0)
-        c = torch.stack(last_seq_c,dim=0)
-        return output_seq, (h, c) 
+                hx = (h,c)
+                output_seq.append(h)
+            layers_last_hidden.append(hx)
+            output_layer = torch.stack(output_seq, dim=1)
+            cur_layer_input = output_layer
+        h = torch.stack([ho[0] for ho in layers_last_hidden],dim=0)
+        c = torch.stack([ho[1] for ho in layers_last_hidden],dim=0)
+        return output_layer, (h,c) 
         
 
 
@@ -766,13 +735,12 @@ class GRU(nn.Module):
         self._dense_layers_hidden1 = nn.ModuleList()
         self._dense_layers_hidden2 = nn.ModuleList()
 
-        
+
         for layer in range(num_layers):
             layer_input_size = input_size if layer == 0 else hidden_size
             self._dense_layers_input.append(Linear(layer_input_size,gate_size,mu = mu, logstd1=logstd1, logstd2=logstd2, pi=pi, dropout = dropout, type = type))
             self._dense_layers_hidden1.append(Linear(hidden_size,2*hidden_size, mu = mu,  logstd1=logstd1,logstd2=logstd2,pi=pi, dropout = dropout, type = type))
             self._dense_layers_hidden2.append(Linear(hidden_size,hidden_size, mu = mu,  logstd1=logstd1,logstd2=logstd2,pi=pi, dropout = dropout, type = type))
-
 
 
 
@@ -825,76 +793,6 @@ class GRU(nn.Module):
         h = torch.stack([ho for ho in layers_last_hidden],dim=0)
         return output_layer, h
         
-
-
-class RNN(nn.Module):
-
-    def __init__(self,input_size, hidden_size,
-                 num_layers=1, batch_first=False,
-                 dropout=0, mu = 0, logstd1 = -1, logstd2 = -2, pi = 0.5, type = ModelType.BBB):
-        super(RNN, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.batch_first = batch_first
-        self.dropout = dropout
-        self._dense_layers_input = nn.ModuleList()
-        self._dense_layers_hidden_h = nn.ModuleList()
-        self._dense_layers_hidden_o = nn.ModuleList()
-
-
-        
-        for layer in range(num_layers):
-            layer_input_size = input_size if layer == 0 else hidden_size
-            self._dense_layers_input.append(Linear(layer_input_size,hidden_size,mu = mu, logstd1=logstd1, logstd2=logstd2, pi=pi, dropout = dropout, type = type))
-            self._dense_layers_hidden_h.append(Linear(hidden_size,hidden_size, mu = mu,  logstd1=logstd1,logstd2=logstd2,pi=pi, dropout = dropout, type = type))
-            self._dense_layers_hidden_o.append(Linear(hidden_size,hidden_size, mu = mu,  logstd1=logstd1,logstd2=logstd2,pi=pi, dropout = dropout, type = type))
-
-
-
-
-    def rnn_cell(self, x, h, dense_i, dense_h, dense_o,):
-        h = (dense_i(x) + dense_h(h)).tanh()
-        return dense_o(h)
-
-  
-
-    def forward(self, input, hidden=None): 
-        
-        if not self.batch_first:
-            input= input.permute(1, 0, 2)
-
-        if isinstance(input, PackedSequence):
-            input, batch_sizes = input
-            batch_size = batch_sizes[0]
-        else:
-            batch_sizes = None
-            batch_size = input.size(0)
-           
-        #initialize hidden state if it is None
-        if hidden is None:
-            hidden = torch.zeros(self.num_layers,batch_size, self.hidden_size).to(input.device)
-        
-        #Iterate over the input sequence and return the last layer's result
-        seq_len = input.size(1) 
-        cur_layer_input = input
-        layers_last_hidden = []
-        for layer in range(self.num_layers):
-            dense_i, dense_h, dense_o  = self._dense_layers_input[layer],  self._dense_layers_hidden_h[layer], self._dense_layers_hidden_o[layer]
-            output_seq = []
-            h = hidden[layer]
-            #Iterate over sequence
-            for t in range(seq_len):
-                x = cur_layer_input[:,t,:]
-                h = self.rnn_cell(x, h, dense_i, dense_h, dense_o)
-                output_seq.append(h)
-            layers_last_hidden.append(output_seq[-1])
-            output_layer = torch.stack(output_seq, dim=1)
-            cur_layer_input = output_layer
-        h = torch.stack([ho for ho in layers_last_hidden],dim=0)
-        return output_layer, h
-        
-
 
 
 # input_size = 32, output_size = 12, hidden_dim = 64, n_layers = 2, std = -2, epoch= 1000, lr = 0.005, batch = 32, sequence = 32, clip = 0.4, max=128

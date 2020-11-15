@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 import pickle
 import time
 import glob
+from extract_hands import *
+
+
 
 
 
@@ -202,6 +205,8 @@ class Skeleton:
         self._uy = np.array([0, 1, 0])
         self._uz = np.array([0, 0, 1])
 
+    def is_empty(self):
+        return self.root.is_empty()
 
     def clone(self):
         skl = Skeleton()
@@ -219,6 +224,8 @@ class Skeleton:
         center_hip = (self.joints[10] + self.joints[13])/2.
         center = (self.joints[3].get3DPoint() + center_hip)/2.
         torso.set_3DPoint(center)
+        torso.id = 21
+        torso.score = 1.0
         self.joints[21] = torso
     
     def GetJoint(self, id):
@@ -227,6 +234,7 @@ class Skeleton:
 
 
     def get_representation(self):
+        if self.is_empty():return np.zeros((65))-1
         self._update_axes()
         inclinations = []
         azimuths = []
@@ -266,6 +274,7 @@ class Skeleton:
 
     def bending_angle(self,joint):
         if joint.is_empty():return -1
+        if joint.get3DPoint().sum() == 0:return 0
         return np.arccos(np.dot(self._uz, joint.get3DPoint()) / np.linalg.norm(joint.get3DPoint()))
 
     def _vecs_angle(self, v1, v2):
@@ -299,10 +308,11 @@ class Skeleton:
     #It will normalize all links to a unit vector
     #Note that even small links as (head,eyes) will heve norm 1
     def normalize(self):
+        if self.is_empty():return self
         skl = Skeleton()
         skl.id= self.id
         skl.score = self.score
-        key_root = self.root.id
+        key_root = JOINTS["TORSO"]
         skl.joints[key_root] = self.joints[key_root].clone()
         
         for start,end in LINKS:
@@ -334,6 +344,7 @@ class Skeleton:
                 if j.id == k:
                     s = i*3
                     vec[s:s+3] = [j.x,j.y,j.z]
+        # vec = np.where(vec != -1, (vec-vec.mean())/(vec.std()+1e-18), -1)
         return vec
 
     def __str__(self):
@@ -346,6 +357,7 @@ class Skeleton:
 
     #Add a imall noise to the skeleton
     def add_noise(self):
+        if self.is_empty():return self
         skl = self.clone()
         for joint in skl.joints.values():
             noise = np.random.normal(0, 0.01, 3)
@@ -354,6 +366,7 @@ class Skeleton:
 
     #Ramdomly erase a joint, which can simulate problems with the detector
     def erase_joint(self):
+        if self.is_empty():return self
         joint_id = int(np.random.rand()*20)+1
         skl = self.clone()
         skl.joints[joint_id].set_3DPoint(np.zeros(3)-1)
@@ -363,6 +376,7 @@ class Skeleton:
     # It is for gesture performed with one hand. 
     # Note that it will not change the visulization of the gesture only the position
     def flip(self):
+        if self.is_empty():return self
         flip_keys = { 1:1, 2:2, 3:3, 7:4, 
                       8:5, 9:6, 4:7, 5:8, 6:9,
                       13:10,14:11,15:12,10:13,
@@ -384,17 +398,16 @@ class Skeleton:
     
     #Normalize the representation to mean zero and variance 1
     def get_normalized_representation(self):
-        representation = self.get_representation()
-        indices = representation>-1
-        values = representation[indices]
-        mean = values.mean()
-        std = values.std()+1e-18
-        representation[indices] = (representation[indices]-mean)/std
-        return representation
+        if self.is_empty():return np.zeros((65))-1
+        rep = self.get_representation()
+        rep = np.where(rep != -1, (rep-rep.mean())/(rep.std()+1e-18), -1)
+        return rep
     
     #Put the bases of the joint to be in the root (TORSO)
     def centralize(self):
+        if self.is_empty():return self
         skl = self.clone()
+
         for key,joint in skl.joints.items():
             if joint.is_empty():continue
             joint.set_3DPoint(joint - self.root)
@@ -456,16 +469,22 @@ def save_skl_vectors(files, file_name = "ufes_dataset"):
                 # skl_flip_normalized = skl.flip().normalize()
                 # dataset_flip.append(np.append(np.array([labels[i]]),skl_flip_normalized.vectorize_reduced(),axis=0))
                 break
-    np.save(file_name,np.array(dataset+dataset_flip))7
+    np.save(file_name,np.array(dataset+dataset_flip))
 
 
-def save_skeletons(file_name = "ifes_dataset_skl"):
-    files = glob.glob("/public/datasets/ifes-2018-10-19/*3d.json") 
+def save_skeletons(file_name = "ufes_dataset_skl"):
+    files = glob.glob("/public/datasets/ufes-2020-01-23/*3d.json") 
     print(len(files))
     skl_dataset = []
+    images = None
     skl_labels = []
     dataset_flip = []
     for src in files:
+        extract_hands(src,(60,60))
+        # print(hands.shape)
+        # images = hands if images is None else np.vstack([images,hands])
+        continue
+
         name = src.split("/")[-1].split("_")[0]
         #spots = glob.glob("/public/datasets/ufes-2020-01-23/spots_left_and_right_hand/{}_spots.json".format(name))[0]
         spots = glob.glob("/public/datasets/ifes-2018-10-19/{}_spots.json".format(name))[0]
@@ -488,7 +507,9 @@ def save_skeletons(file_name = "ifes_dataset_skl"):
                 skl_dataset.append(skl)
                 skl_labels.append(labels[i])
                 break
-    pickle.dump({"skeletons":skl_dataset, "labels":skl_labels}, open("{}.pkl".format(file_name),"wb"))
+  
+    #np.save("ifes_hand_images.npy",images)
+    #pickle.dump({"skeletons":skl_dataset, "labels":skl_labels}, open("{}.pkl".format(file_name),"wb"))
        
 
    
@@ -565,15 +586,16 @@ def plot_skeleton(ax, fig, skeleton):
 
 if __name__ == "__main__":
 
-    save_skeletons()
-    # plt.ion()
-    # fig = plt.figure()
-    # ax = fig.gca(projection='3d')
+    # save_skeletons()
+    plt.ion()
+    fig = plt.figure()
+    pickle.load(open("ufes_R_dataset_skl.pkl","rb"))
+    ax = fig.gca(projection='3d')
     
-    # data = pickle.load(open("ufes_dataset_skl.pkl","rb"))
-    # for skl in data["skeletons"]:
-    #             #skl.get_representation()
-    #             plot_skeleton(ax, fig, skl.centralize().normalize().flip())
+    data = pickle.load(open("ufes_R_dataset_skl.pkl","rb"))
+    for skl in data["skeletons"]:
+                # skl.get_representation()
+                plot_skeleton(ax, fig, skl.centralize().flip())
 
 
 

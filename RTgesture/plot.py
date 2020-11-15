@@ -33,6 +33,7 @@ def jaccard_index(s1, s2) :
   
     # Return the Jaccard index  
     return jaccard_in;  
+    
 def calc_uncertainties(probs):
     #vr= np.argmax(probs, axis= 2).mean(1) #variation ratio
     if len(probs.shape) > 2:

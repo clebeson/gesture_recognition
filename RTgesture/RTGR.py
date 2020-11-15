@@ -70,7 +70,7 @@ class RTGR(nn.Module):
              }
         self.data_type = data_type
 
-        #self.norm = nn.InstanceNorm1d(input_size)
+       
         #Embedding
 
         self.input_size = input_size
@@ -92,17 +92,8 @@ class RTGR(nn.Module):
                                     hidden_size = self.hidden_dim, num_layers = self.n_layers, \
                                     batch_first=True,**rnn_args) 
                                     
-        # self.noise = GaussianNoise(0.01)
-
-
-        # dropout layer
-        # self.norm1 = nn.BatchNorm1d(self.input_size)
-        # self.norm2 = nn.BatchNorm1d(self.embeding_size)
-        self.dropout = dropout
-        # self.fc_combine = bl.Linear(self.input_size, self.input_size, **linear_args)
-        # self.combine = nn.Sequential(self.fc_combine, nn.ReLU())
         
-        # linear and sigmoid layers
+        self.dropout = dropout
         self.fc = bl.Linear(self.hidden_dim, self.output_size, **last_linear_args)
         self.dp_training = True
         self._baysian_layers = []
@@ -114,19 +105,10 @@ class RTGR(nn.Module):
             layer.store_samples = store
 
     def forward(self, x, hidden):
-        # x = self.noise(x)
-        # x = self.norm1(x.view(-1,self.input_size)).view(x.shape)
         x = self.fc1(x)
         emb = self.fc2(x)
-        # emb = self.norm2(emb.view(-1,self.embeding_size)).view(emb.shape)
         out, hidden_out = self.lstm(emb, hidden)
-        out = self.fc(out) 
-   
-        # if targets is not None:
-        #     out = out.contiguous().view(-1, out.size(-1))
-        #     out, hidden_out = self.sharpening_posterior(emb,hidden,out,targets)
-        #     out = self.fc(out) 
-        
+        out = self.fc(out)         
         out = out.contiguous().view(-1, out.size(-1))
         return out, hidden_out
 
