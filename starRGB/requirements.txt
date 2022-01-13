@@ -12,7 +12,7 @@ hyperopt==0.2.4
 matplotlib==3.2.1
 Augmentor==0.2.8
 grpc==1.0.0
-Pillow==7.2.0
+Pillow==9.0.0
 protobuf==3.12.4
 scikit_learn==0.23.2
 skimage==0.0
